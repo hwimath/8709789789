@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>휘매쓰 연산 챌린지!</title>
+<!-- MathJax 라이브러리 로드 -->
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" defer></script>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin:20px;
+  }
+  .container {
+    max-width: 700px;
+    margin: auto;
+    text-align:center;
+  }
+  h1 {
+    color:#333;
+  }
+  .hidden {
+    display:none;
+  }
+  .energy-bar-container {
+    width: 100%;
+    background: #ccc;
+    height: 20px;
+    position: relative;
+    margin-bottom: 10px;
+  }
+  .energy-bar {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to right, #4CAF50, #8BC34A);
+    transition: width 0.5s linear;
+  }
+  .score, .lives, .total-time {
+    margin:10px 0;
+    font-size:16px;
+  }
+  .difficulty-select button {
+    margin:5px;
+    padding:10px 20px;
+    font-size:16px;
+    cursor:pointer;
+  }
+  .option-button {
+    display:block;
+    margin:10px auto;
+    padding:10px 20px;
+    font-size:16px;
+    cursor:pointer;
+    width:80%;
+    max-width:250px;
+    margin-bottom:10px;
+    text-align:left;
+  }
+  .question {
+    margin:20px 0;
+    font-size:20px;
+    min-height:50px;
+  }
+  #message {
+    margin-top:10px;
+    min-height:20px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>휘매쓰 연산 챌린지!</h1>
+  <p style="font-size:14px; color:gray;">(일부 어색한 문제 제거: #16, #25, #26, #27, #37, #39, #40)</p>
+  <div id="start-screen">
+    <p>난이도를 선택해주세요:</p>
+    <div class="difficulty-select">
+      <button data-difficulty="top">최상 (20초, 문제당 20점)</button>
+      <button data-difficulty="high">상 (30초, 문제당 15점)</button>
+      <button data-difficulty="mid">중 (40초, 문제당 13점)</button>
+      <button data-difficulty="low">하 (시간제한 없음, 문제당 10점)</button>
+    </div>
+  </div>
+  
+  <div id="game-screen" class="hidden">
+    <div class="energy-bar-container" id="energy-container">
+      <div class="energy-bar" id="energy-bar"></div>
+    </div>
+    <div class="total-time" id="total-time">전체 경과 시간: 0초</div>
+    <div class="lives" id="lives">남은 기회: 3</div>
+    <div class="score" id="score">점수: 0</div>
+    <div class="question" id="question"></div>
+    <div id="options"></div>
+    <div id="message"></div>
+  </div>
+  
+  <div id="end-screen" class="hidden">
+    <h2>게임 종료!</h2>
+    <p id="final-score"></p>
+    <button id="restart-button">다시 시작</button>
+  </div>
+</div>
+
+<script>
+  const difficultySettings = {
+    top: {time:20, scorePerCorrect:20}, 
+    high:{time:30, scorePerCorrect:15}, 
+    mid: {time:40, scorePerCorrect:13}, 
+    low: {time:null, scorePerCorrect:10} 
+  };
+
+  let difficulty = null;
+  let timeLimit = null;
+  let scorePerCorrect = null;
+
+  let score = 0;
+  let lives = 3;
+  let totalTime = 0; 
+  let currentTime = 0; 
+  let timerInterval = null;
+  let totalTimerInterval = null;
+
+  let currentQuestionIndex = 0; 
+
+  // 제거한 문제: #16, #25, #26, #27, #37, #39, #40
+  // 남은 문제들(정답 섞어서)  
+  // 정답 위치를 다시 다양한 곳에 배치
+  const questions = [
+    // #1: 정답:30+a, 섞기: 
+    {question:"십의 자리가 3, 일의 자리가 a인 두 자리의 자연수",
+     options:["3+10a","10+3a","3a","30+a"],answer:3},
+    // #2: 정답:3a cm
+    {question:"한 변의 길이가 a cm인 정삼각형의 둘레",
+     options:["3a cm","a+3 cm","3/a cm","3+a cm"],answer:0},
+    // #3: 정답:(200×a)원
+    {question:"200원짜리 사탕 a개의 가격",
+     options:["(200+a)원","(200×a)원","(2×a)원","(20×a)원"],answer:1},
+    // #4: (300×a+700×b)원
+    {question:"볼펜(300원) a자루+노트(700원) b권의 총합",
+     options:["(300a+70b)원","(300+a+700+b)원","(100a+700b)원","(300×a+700×b)원"],answer:3},
+    // #5: (x×6)원
+    {question:"한 개에 x원 초콜릿 6개 가격",
+     options:["(x÷6)원","(x×6)원","(6÷x)원","(6+x)원"],answer:1},
+    // #6: ((a+b)h)/2
+    {question:"사다리꼴 넓이(윗변 a,아랫변 b,높이 h)",
+     options:["(a-b)h/2","(a+b+h)/2","((a+b)h)/2","(a×b×h)/2"],answer:2},
+    // #7: (a×b)cm²
+    {question:"직사각형 넓이(가로 a, 세로 b)",
+     options:["a+b cm²","(a×b)cm²","ab cm","(a÷b)cm²"],answer:1},
+    // #8: (4×a)cm
+    {question:"정사각형 둘레(한 변 a cm)",
+     options:["(4+a)cm","(a÷4)cm","(a²+4)cm","(4×a)cm"],answer:3},
+    // #9: (1000x+300y)원
+    {question:"빵(1000원)x개+우유(300원)y개 가격",
+     options:["(1000y+300x)원","(1000x+3y)원","(1000x+300y)원","(1000+300xy)원"],answer:2},
+    // #10:(2000-2000x)원
+    {question:"2000원 사탕x개 사고 2000원 냈을 때 거스름돈",
+     options:["(2000+2000x)원","(2000x-2000)원","(2000x÷2000)원","(2000-2000x)원"],answer:3},
+    // #11:(50000-500x)원
+    {question:"정가50000원 신발 x%할인 판매가",
+     options:["(50000 - x)원","(50000 ÷ x)원","(50000 - 50x)원","(50000 - 500x)원"],answer:3},
+    // #12:(10000 - x)원
+    {question:"원가x원 옷 10000원에 팔 때 이익",
+     options:["(x - 10000)원","(10000/x)원","(10000 + x)원","(10000 - x)원"],answer:3},
+    // #13:10a+b
+    {question:"십의 자리 a, 일의 자리 b 두 자리 수",
+     options:["a+10b","10a+b","10+a+b","100a+b"],answer:1},
+    // #14:x+5살
+    {question:"x살 동생 5년 후 나이",
+     options:["5x살","x-5살","5 - x살","x+5살"],answer:3},
+    // #15:1000x원
+    {question:"1000원 빵 x개 가격",
+     options:["(1000 - x)원","(x/1000)원","(1000+x)원","1000x원"],answer:3},
+    // #17:(1000-250x)원
+    {question:"250원 사과x개 1000원 내고 샀을 때 거스름돈",
+     options:["(1000+250x)원","(250x-1000)원","(1000÷250x)원","(1000-250x)원"],answer:3},
+    // #18:(5000 - 3x)원
+    {question:"x원 사과3개 5000원 냈을 때 거스름돈",
+     options:["(5000 + 3x)원","(3x - 5000)원","(5000 - x)원","(5000 - 3x)원"],answer:3},
+    // #19:(1500x+1000y)원
+    {question:"포도(1500원)x송이+복숭아(1000원)y개 총합",
+     options:["(x+y)*2500원","(1500+ x+1000+ y)원","(1500y+1000x)원","(1500x+1000y)원"],answer:3},
+    // #20:(3/5)b원
+    {question:"5자루 b원 색연필 중 3자루 가격",
+     options:["(b/5)원","(3b)원","(b/3)원","(3/5)b원"],answer:3},
+    // #21:0.3a+0.5b원
+    {question:"a원의3할+b원의5할 합",
+     options:["3a+5b원","0.5a+0.3b원","0.03a+0.05b원","0.3a+0.5b원"],answer:3},
+    // #22:(2/25)a원(8%)
+    {question:"정가 a원의 8%",
+     options:["(a/25)원","(8a)원","(a/8)원","(2/25)a원"],answer:3},
+    // #23:(4/5)x원(20%할인)
+    {question:"정가x원 20%할인가",
+     options:["(x/5)원","(5/4)x원","(x-20)원","(4/5)x원"],answer:3},
+    // #24:80a km
+    {question:"시속80km, a시간 거리",
+     options:["80+a km","a/80 km","80÷a km","80a km"],answer:3},
+    // #28:1000/x %
+    {question:"소금10g, xg소금물 농도",
+     options:["x/1000 %","10/x %","1000x %","1000/x %"],answer:3},
+    // #29:x×5 g
+    {question:"농도x% 소금물500g 소금량",
+     options:["x/5 g","5/x g","500/x g","x×5 g"],answer:3},
+    // #30:(7/100)x g
+    {question:"농도7% 소금물 xg 소금량",
+     options:["(7x)g","(x/7)g","(100/7)x g","(7/100)x g"],answer:3},
+    // #31:30a km
+    {question:"시속30km a시간 거리",
+     options:["30+a km","30/a km","(30÷a)km","30a km"],answer:3},
+    // #32:50t km
+    {question:"시속50km t시간 거리",
+     options:["(50+t)km","(t/50)km","(50÷t)km","50t km"],answer:3},
+    // #33:3x km
+    {question:"시속x km,3시간 거리",
+     options:["(3/x)km","(x/3)km","(3+x)km","3x km"],answer:3},
+    // #34:40/a 시간
+    {question:"40km를 시속 a km로 달린 시간",
+     options:["(40+a)시간","(40a)시간","(a/40)시간","(40/a)시간"],answer:3},
+    // #35:b/4 시간
+    {question:"b km를 시속4km로 달린 시간",
+     options:["(b+4)시간","(4/b)시간","(b×4)시간","(b/4)시간"],answer:3},
+    // #36:x/3 %
+    {question:"300g소금물 xg소금 농도",
+     options:["x%","3x%","(300/x)%","x/3 %"],answer:3},
+    // #38:x%
+    {question:"소금xg 녹은 100g소금물 농도",
+     options:["x/100%","100/x%","x/2%","x%"],answer:3},
+    // #41:a-3 살
+    {question:"현재 a살 희현이 3년전 나이",
+     options:["a+3 살","3-a 살","a/3 살","a-3 살"],answer:3},
+    // #42:x+4 살
+    {question:"x살 동생보다4살 많은 형 나이",
+     options:["x-4 살","4-x 살","4x 살","x+4 살"],answer:3},
+    // #43:2y+8 살
+    {question:"아버지나이=아들(y살)*2,8년후 아버지나이",
+     options:["2y 살","y+8 살","2+ y×8 살","2y+8 살"],answer:3},
+    // #44:(x×6/5)원(20%이익)
+    {question:"원가x원 20% 이익 판매가",
+     options:["(x×1.2)원","(x+20)원","(x/5)원","(x×6/5)원"],answer:3},
+    // #45:(a×7/10)원(30%할인)
+    {question:"정가a원 물건30%할인가",
+     options:["(a×0.7)원","(a-7)원","(7a)원","(a×7/10)원"],answer:3},
+    // #46:(a×a)cm²
+    {question:"한 변 a cm 정사각형 넓이",
+     options:["(a+a)cm²","(2a)cm²","(a/2)cm²","(a×a)cm²"],answer:3},
+    // #47:(2x+2y)cm
+    {question:"가로xcm 세로ycm 직사각형 둘레",
+     options:["(x+y)cm","(2x+y)cm","(xy)cm","(2x+2y)cm"],answer:3},
+    // #48:(a×h×1/2)cm²
+    {question:"밑변 a cm 높이 h cm 삼각형넓이",
+     options:["(a+h)/2 cm²","(2×a×h)cm²","(a×h)cm²","(a×h×1/2)cm²"],answer:3},
+    // #49:(a×a×h)cm³
+    {question:"밑변 a cm 정사각형, 높이h cm 사각기둥부피",
+     options:["(a×h)cm³","(a³×h)cm³","(a×a)cm³","(a×a×h)cm³"],answer:3},
+    // #50:(24 - x)시간
+    {question:"낮x시간인 날 밤 길이",
+     options:["(x - 24)시간","(24 + x)시간","(24/x)시간","(24 - x)시간"],answer:3},
+    // #51:(2x)개
+    {question:"오리x마리 다리 개수",
+     options:["x개","(2+x)개","x/2개","(2x)개"],answer:3},
+    // #52:(a - 7x)쪽
+    {question:"전체a쪽 책 매일x쪽7일 읽은 후 남은 쪽",
+     options:["(a - x)쪽","(a - 7)쪽","(a ÷ 7x)쪽","(a - 7x)쪽"],answer:3},
+    // #53:x-2
+    {question:"연속된 세 자연수 중 큰 수가 x일 때 작은 수",
+     options:["x-1","x+2","x/2","x-2"],answer:3},
+    // #54:x/4 %
+    {question:"소금xg 녹은 400g소금물 농도",
+     options:["x/400%","4/x%","x×4%","x/4 %"],answer:3},
+    // #55:70t km
+    {question:"시속70km t시간 이동거리",
+     options:["70+t km","70÷t km","t/70 km","70t km"],answer:3},
+    // #56:x+2
+    {question:"연속된 세 자연수 중 가장 작은 수가 x일 때 큰 수",
+     options:["x-2","x+1","x×2","x+2"],answer:3},
+    // #57:(x×3/4)원(25%할인)
+    {question:"정가x원 물건25%할인가",
+     options:["(3x)원","(x×1/4)원","(x+3/4)원","(x×3/4)원"],answer:3},
+    // #58:(x×y)cm²
+    {question:"가로xcm,세로ycm 직사각형넓이",
+     options:["(x+y)cm²","(x-y)cm²","(x÷y)cm²","(x×y)cm²"],answer:3}
+  ];
+
+  document.querySelectorAll('.difficulty-select button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      difficulty = btn.getAttribute('data-difficulty');
+      timeLimit = difficultySettings[difficulty].time;
+      scorePerCorrect = difficultySettings[difficulty].scorePerCorrect;
+      startGame();
+    });
+  });
+
+  function startGame(){
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('game-screen').classList.remove('hidden');
+    score = 0;
+    lives = 3;
+    totalTime = 0;
+    currentQuestionIndex = 0;
+    updateUI();
+    if(difficulty !== 'low'){
+      startEnergyBar();
+    }
+    startTotalTimer();
+    showQuestion();
+  }
+
+  function startEnergyBar(){
+    currentTime = timeLimit;
+    updateEnergyBar();
+    if(timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+      currentTime -= 1;
+      updateEnergyBar();
+      if(currentTime <= 0){
+        loseLife();
+      }
+    }, 1000);
+  }
+
+  function startTotalTimer(){
+    if(totalTimerInterval) clearInterval(totalTimerInterval);
+    totalTimerInterval = setInterval(() => {
+      totalTime += 1;
+      document.getElementById('total-time').textContent = `전체 경과 시간: ${totalTime}초`;
+    },1000);
+  }
+
+  function updateUI(){
+    document.getElementById('score').textContent = `점수: ${score}`;
+    document.getElementById('lives').textContent = `남은 기회: ${lives}`;
+  }
+
+  function updateEnergyBar(){
+    const bar = document.getElementById('energy-bar');
+    const container = document.getElementById('energy-container');
+    if(difficulty === 'low'){
+      container.style.display = 'none';
+      return;
+    } else {
+      container.style.display = 'block';
+    }
+    let percent = (currentTime / timeLimit)*100;
+    bar.style.width = percent + '%';
+  }
+
+  function loseLife(){
+    lives -= 1;
+    if(lives <= 0){
+      endGame();
+      return;
+    }
+    updateUI();
+    if(difficulty !== 'low'){
+      startEnergyBar();
+    }
+    nextQuestion();
+  }
+
+  function endGame(){
+    clearInterval(timerInterval);
+    clearInterval(totalTimerInterval);
+    document.getElementById('game-screen').classList.add('hidden');
+    document.getElementById('end-screen').classList.remove('hidden');
+    document.getElementById('final-score').textContent = `최종 점수: ${score}`;
+  }
+
+  document.getElementById('restart-button').addEventListener('click', ()=>{
+    document.getElementById('end-screen').classList.add('hidden');
+    document.getElementById('start-screen').classList.remove('hidden');
+  });
+
+  function showQuestion(){
+    let q;
+    if(currentQuestionIndex < questions.length){
+      q = questions[currentQuestionIndex];
+    } else {
+      // 모든 문제를 다 푼 후에는 랜덤으로 출제
+      const rndIndex = Math.floor(Math.random()*questions.length);
+      q = questions[rndIndex];
+    }
+
+    document.getElementById('message').innerHTML = '';
+    document.getElementById('question').textContent = q.question;
+    const optionsDiv = document.getElementById('options');
+    optionsDiv.innerHTML = '';
+    q.options.forEach((opt,i)=>{
+      let btn = document.createElement('button');
+      btn.className='option-button';
+      btn.textContent = opt;
+      btn.addEventListener('click', ()=>checkAnswer(i, q.answer));
+      optionsDiv.appendChild(btn);
+    });
+    MathJax.typesetPromise();
+  }
+
+  function checkAnswer(selected, correct){
+    let messageDiv = document.getElementById('message');
+    if(selected === correct){
+      messageDiv.innerHTML = '<span style="color:green;">정답!</span>';
+      score += scorePerCorrect;
+      updateUI();
+    } else {
+      messageDiv.innerHTML = '<span style="color:red;">오답!</span>';
+      lives -= 1;
+      if(lives <=0){
+        endGame();
+        return;
+      }
+      updateUI();
+    }
+    setTimeout(()=>{
+      messageDiv.innerHTML = '';
+      if(difficulty !== 'low'){
+        startEnergyBar(); 
+      }
+      nextQuestion();
+    },1000);
+  }
+
+  function nextQuestion(){
+    currentQuestionIndex++;
+    showQuestion();
+  }
+
+</script>
+</body>
+</html>
